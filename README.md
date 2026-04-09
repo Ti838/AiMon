@@ -1,76 +1,146 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
-  <img src="./public/favicon.svg" alt="AiMon Logo" width="120" />
-  <h1>AiMon</h1>
-  <p><strong>Benchmark Every Major AI Provider Side-by-Side</strong></p>
+	<img src="./public/favicon.svg" alt="AiMon Logo" width="120" />
+	<h1>AiMon</h1>
+	<p><strong>Benchmark Every Major AI Provider Side-by-Side</strong></p>
 </div>
 <!-- markdownlint-enable MD033 MD041 -->
 
-**AiMon** is a powerful, modern, and high-density dashboard built for developers and researchers to test, compare, and benchmark the latest LLMs across multiple providers (OpenAI, Anthropic, Google, Meta, Mistral, and Cohere). It offers real-time streaming capability and actionable analytics on latency, throughput, cost, and quality to help you choose the best model for your use-case.
+AiMon is a browser-based AI model benchmarking dashboard for live testing, comparison, and reporting across major LLM providers.
 
-## Features
+## What This Software Does
 
-- **Live Testing Side-by-Side**: Stream responses concurrently from up to 4 AI models. Measure Time to First Token (TTFT) and token generation speed live.
-- **Automated Benchmarking**: Fire customized prompts to selected models and track detailed execution metrics.
-- **Head-to-Head Comparison**: Compare models directly using beautiful Radar and Bar charts (powered by Recharts).
-- **Global Leaderboard**: Models are dynamically ranked by quality, latency, throughput, or cost so you know exactly who dominates the board.
-- **Persisted History**: All benchmarks are saved locally to track model degradations or improvements over time.
-- **Private API Key Storage**: Keys are securely stored only in your browser's `localStorage` and sent directly to the providers—no middleman servers.
-- **Premium SaaS Theming**: Built with a custom design system, including neon-glow hover effects and seamless Light/Dark mode toggling.
+- Runs side-by-side live prompt tests against multiple models.
+- Measures practical metrics such as latency (TTFT), throughput, estimated cost, and context window.
+- Compares models with tables and charts.
+- Tracks benchmark history locally.
+- Exports benchmark data to CSV and charts to PNG.
+- Supports dynamic model discovery via OpenRouter catalog loading.
 
-## Getting Started
+## What This Software Does Not Do
+
+- It cannot guarantee permanent coverage of every AI model in the world.
+- It does not provide enterprise-grade server-side key vaulting by default.
+- It does not provide fully deterministic quality scoring out of the box.
+
+For full details, see [docs/CAPABILITIES_AND_LIMITATIONS.md](docs/CAPABILITIES_AND_LIMITATIONS.md).
+
+## Model Coverage Reality
+
+AI model catalogs change frequently. AiMon uses both:
+
+- Curated static provider lists.
+- Dynamic OpenRouter model catalog loading.
+
+This gives broad practical coverage, but not a permanent “all models forever” guarantee.
+
+## Documentation Index
+
+- Product requirements: [docs/SRS.md](docs/SRS.md)
+- Internal flow and architecture: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)
+- Capabilities and limitations: [docs/CAPABILITIES_AND_LIMITATIONS.md](docs/CAPABILITIES_AND_LIMITATIONS.md)
+- API integration reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
+- Deployment guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- Contribution process: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Change history: [CHANGELOG.md](CHANGELOG.md)
+- License terms: [LICENSE](LICENSE)
+
+## Screenshots
+
+Place screenshots in [docs/screenshots/README.md](docs/screenshots/README.md) recommended paths.
+
+Example display blocks you can use after adding images:
+
+```md
+![Dashboard](docs/screenshots/dashboard.png)
+![Live Test](docs/screenshots/live-test.png)
+![Compare](docs/screenshots/compare.png)
+```
+
+## Quick Start
 
 ### Prerequisites
 
-Make sure you have [Node.js](https://nodejs.org/) installed on your machine.
+- Node.js 20+
+- npm
 
-### Installation
+### Install
 
-1. **Clone the repository:**
+```bash
+npm ci
+```
 
-   ```bash
-   git clone <your-repository-url>
-   cd "AI Performance"
-   ```
+### Run (Dev)
 
-2. **Install dependencies:**
+```bash
+npm run dev
+```
 
-   ```bash
-   npm install
-   ```
+### Build (Prod)
 
-3. **Run the development server:**
+```bash
+npm run build
+```
 
-   ```bash
-   npm run dev
-   ```
+### Preview Build
 
-4. **Access the application:**
+```bash
+npm run preview
+```
 
-   Open your browser and navigate to `http://localhost:5173`.
+## OS Sections
 
-## Configuration
+### Windows (PowerShell)
 
-To unlock real live testing, you will need to add your personal API keys.
-Navigate to the **API Keys (Settings)** tab in the application and securely enter keys for any provider you wish to test:
+```powershell
+npm ci
+npm run dev
+```
 
-- **OpenAI**
-- **Anthropic**
-- **Google AI Studio (Gemini)**
-- **Meta (Llama)**
-- **Mistral**
-- **Cohere**
+### macOS / Linux (bash/zsh)
 
-*Note: If a key is missing for a provider, the app will gracefully fall back to executing a realistic simulation for demonstration purposes.*
+```bash
+npm ci
+npm run dev
+```
 
-## Built With
+## CI
 
-- **React** (UI Library)
-- **Vite** (Build Tool)
-- **Recharts** (Data Visualization)
-- **Custom SVG Icons & Design System** (Zero reliance on hard-coded OS emojis)
-- Vanilla CSS with CSS Variables for consistent theming
+GitHub Actions workflow runs on:
+
+- Linux
+- Windows
+- macOS
+
+Pipeline steps:
+
+1. Install dependencies (`npm ci`)
+2. Lint (`npm run lint`)
+3. Build (`npm run build`)
+4. Upload per-OS `dist` artifacts
+
+Workflow file: [.github/workflows/ci.yml](.github/workflows/ci.yml)
+
+## Release and Versioning
+
+- Manual version automation workflow: [.github/workflows/version-bump.yml](.github/workflows/version-bump.yml)
+- Tag-based release workflow: [.github/workflows/release.yml](.github/workflows/release.yml)
+- GitHub Pages deployment workflow: [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml)
+
+## Security Notes
+
+- API keys are stored in browser localStorage.
+- Keys are used for direct provider API calls from the browser.
+- For strict compliance use-cases, add a backend proxy/key-vault layer.
+
+## Technology Stack
+
+- React
+- Vite
+- Recharts
+- html2canvas (PNG export)
+- Vanilla CSS design system
 
 ## License
 
-This project is open-source and free to use.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

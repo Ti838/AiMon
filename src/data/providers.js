@@ -1,5 +1,24 @@
 // AI Provider & Model Data
 export const PROVIDERS = {
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    color: '#ff6b35',
+    models: [
+      { id: 'openai/gpt-4o', name: 'GPT-4o (OpenRouter)', contextWindow: 128000, inputCost: 0.005, outputCost: 0.015 },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (OpenRouter)', contextWindow: 128000, inputCost: 0.00015, outputCost: 0.0006 },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (OpenRouter)', contextWindow: 200000, inputCost: 0.003, outputCost: 0.015 },
+      { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku (OpenRouter)', contextWindow: 200000, inputCost: 0.0008, outputCost: 0.004 },
+      { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash (OpenRouter)', contextWindow: 1000000, inputCost: 0.0001, outputCost: 0.0004 },
+      { id: 'google/gemini-1.5-pro', name: 'Gemini 1.5 Pro (OpenRouter)', contextWindow: 2000000, inputCost: 0.0035, outputCost: 0.0105 },
+      { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B (OpenRouter)', contextWindow: 128000, inputCost: 0.003, outputCost: 0.003 },
+      { id: 'mistralai/mistral-large', name: 'Mistral Large (OpenRouter)', contextWindow: 128000, inputCost: 0.003, outputCost: 0.009 },
+      { id: 'x-ai/grok-2-1212', name: 'Grok 2 (OpenRouter)', contextWindow: 131072, inputCost: 0.002, outputCost: 0.01 },
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat (OpenRouter)', contextWindow: 128000, inputCost: 0.00027, outputCost: 0.0011 },
+      { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B (OpenRouter)', contextWindow: 131072, inputCost: 0.0009, outputCost: 0.0009 },
+      { id: 'moonshotai/kimi-k2', name: 'Kimi K2 (OpenRouter)', contextWindow: 128000, inputCost: 0.0006, outputCost: 0.002 },
+    ],
+  },
   openai: {
     id: 'openai',
     name: 'OpenAI',
@@ -91,6 +110,15 @@ export const BENCHMARK_PROMPTS = [
 // Simulate benchmark run — returns mock data with realistic variance
 export function simulateBenchmark(modelId, providerId) {
   const baseLatency = {
+    'openai/gpt-4o': 330, 'openai/gpt-4o-mini': 190,
+    'anthropic/claude-3.5-sonnet': 290, 'anthropic/claude-3.5-haiku': 170,
+    'google/gemini-2.0-flash-001': 110, 'google/gemini-1.5-pro': 390,
+    'meta-llama/llama-3.1-405b-instruct': 500,
+    'mistralai/mistral-large': 350,
+    'x-ai/grok-2-1212': 360,
+    'deepseek/deepseek-chat': 210,
+    'qwen/qwen-2.5-72b-instruct': 260,
+    'moonshotai/kimi-k2': 240,
     'gpt-4o': 320, 'gpt-4o-mini': 180, 'gpt-4-turbo': 450, 'gpt-3.5-turbo': 200,
     'o1-preview': 2100, 'o1-mini': 1200,
     'claude-3-5-sonnet': 280, 'claude-3-5-haiku': 160, 'claude-3-opus': 520, 'claude-3-sonnet': 300, 'claude-3-haiku': 140,
@@ -100,6 +128,15 @@ export function simulateBenchmark(modelId, providerId) {
     'command-r-plus': 360, 'command-r': 200, 'command-light': 100,
   };
   const baseThroughput = {
+    'openai/gpt-4o': 90, 'openai/gpt-4o-mini': 130,
+    'anthropic/claude-3.5-sonnet': 100, 'anthropic/claude-3.5-haiku': 165,
+    'google/gemini-2.0-flash-001': 255, 'google/gemini-1.5-pro': 75,
+    'meta-llama/llama-3.1-405b-instruct': 48,
+    'mistralai/mistral-large': 78,
+    'x-ai/grok-2-1212': 92,
+    'deepseek/deepseek-chat': 180,
+    'qwen/qwen-2.5-72b-instruct': 140,
+    'moonshotai/kimi-k2': 160,
     'gpt-4o': 85, 'gpt-4o-mini': 120, 'gpt-4-turbo': 65, 'gpt-3.5-turbo': 150,
     'o1-preview': 28, 'o1-mini': 45,
     'claude-3-5-sonnet': 95, 'claude-3-5-haiku': 160, 'claude-3-opus': 40, 'claude-3-sonnet': 80, 'claude-3-haiku': 200,
@@ -109,6 +146,15 @@ export function simulateBenchmark(modelId, providerId) {
     'command-r-plus': 65, 'command-r': 130, 'command-light': 220,
   };
   const baseQuality = {
+    'openai/gpt-4o': 95, 'openai/gpt-4o-mini': 85,
+    'anthropic/claude-3.5-sonnet': 97, 'anthropic/claude-3.5-haiku': 88,
+    'google/gemini-2.0-flash-001': 89, 'google/gemini-1.5-pro': 93,
+    'meta-llama/llama-3.1-405b-instruct': 90,
+    'mistralai/mistral-large': 88,
+    'x-ai/grok-2-1212': 90,
+    'deepseek/deepseek-chat': 87,
+    'qwen/qwen-2.5-72b-instruct': 86,
+    'moonshotai/kimi-k2': 87,
     'gpt-4o': 95, 'gpt-4o-mini': 84, 'gpt-4-turbo': 94, 'gpt-3.5-turbo': 78,
     'o1-preview': 98, 'o1-mini': 91,
     'claude-3-5-sonnet': 97, 'claude-3-5-haiku': 87, 'claude-3-opus': 96, 'claude-3-sonnet': 92, 'claude-3-haiku': 82,

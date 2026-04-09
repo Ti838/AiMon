@@ -1,16 +1,16 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import './index.css';
 import Sidebar from './components/Sidebar';
-import Dashboard from './pages/Dashboard';
-import Benchmark from './pages/Benchmark';
-import Leaderboard from './pages/Leaderboard';
-import Compare from './pages/Compare';
-import History from './pages/History';
-import Settings from './pages/Settings';
 import { useToast, ToastContainer } from './hooks/useToast';
-import LiveTest from './pages/LiveTest';
 import { useTheme } from './context/ThemeContext';
-import { IconBenchmark } from './components/NavIcons';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const LiveTest = lazy(() => import('./pages/LiveTest'));
+const Benchmark = lazy(() => import('./pages/Benchmark'));
+const Leaderboard = lazy(() => import('./pages/Leaderboard'));
+const Compare = lazy(() => import('./pages/Compare'));
+const History = lazy(() => import('./pages/History'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 const STORAGE_KEYS = {
   results: 'aiperf_results',
@@ -65,11 +65,11 @@ export default function App() {
   };
 
   const pages = {
-    dashboard: <Dashboard results={results} />,
+    dashboard: <Dashboard results={results} showToast={showToast} />,
     live: <LiveTest apiKeys={apiKeys} onResult={handleResult} showToast={showToast} />,
     benchmark: <Benchmark onResult={handleResult} showToast={showToast} />,
     leaderboard: <Leaderboard results={results} />,
-    compare: <Compare results={results} />,
+    compare: <Compare results={results} showToast={showToast} />,
     history: <History results={results} onClear={handleClearHistory} />,
     settings: <Settings apiKeys={apiKeys} onSaveKey={handleSaveKey} showToast={showToast} />,
   };
@@ -126,11 +126,22 @@ export default function App() {
 
         {/* Main */}
         <main className="main-content">
-          {pages[activePage] || pages.dashboard}
+          <Suspense fallback={<PageLoader />}>
+            {pages[activePage] || pages.dashboard}
+          </Suspense>
         </main>
       </div>
 
       <ToastContainer toasts={toasts} />
     </>
+  );
+}
+
+function PageLoader() {
+  return (
+    <div className="card page-loader" role="status" aria-live="polite">
+      <span className="spinner" />
+      <span>Loading page…</span>
+    </div>
   );
 }

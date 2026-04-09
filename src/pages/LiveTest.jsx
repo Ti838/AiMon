@@ -1,9 +1,149 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { PROVIDERS } from '../data/providers';
-import { callProvider } from '../lib/api';
+import { callProvider, fetchOpenRouterModels } from '../lib/api';
 import { simulateBenchmark } from '../data/providers';
 import { ProviderLogo } from '../components/ProviderLogos';
 import { IconLive, IconSpeed, IconBenchmark, IconTarget, IconCrown } from '../components/NavIcons';
+
+const LIVE_PRESET_STORAGE_KEY = 'aiperf_live_saved_selection';
+const DEVICE_HINT_DISMISS_KEY = 'aiperf_device_hint_dismissed';
+const AUTO_PRESET_APPLIED_KEY = 'aiperf_auto_preset_applied';
+
+const PROMPT_SUGGESTIONS_DEFAULT = [
+  'Explain quantum computing in simple terms',
+  'Write a recursive Fibonacci in Python with memoization',
+  'What are the ethical risks of autonomous AI agents?',
+  'Create a haiku about machine learning',
+  'Pros and cons of GraphQL vs REST APIs',
+];
+
+const PROMPT_SUGGESTIONS_MOBILE = [
+  'Explain quantum computing simply',
+  'Python quicksort example',
+  'AI ethics top 3 risks',
+  'Write a short ML haiku',
+  'GraphQL vs REST quick compare',
+];
+
+function detectClientProfile() {
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+  const ua = (nav?.userAgent || '').toLowerCase();
+  const platform = nav?.userAgentData?.platform || nav?.platform || 'Unknown';
+  const cpuCores = nav?.hardwareConcurrency || 0;
+  const memoryGb = nav?.deviceMemory || 0;
+  const networkType = conn?.effectiveType || '';
+  const saveData = !!conn?.saveData;
+  const isMobile = /android|iphone|ipad|ipod|mobile/i.test(ua);
+  const isTablet = /ipad|tablet/i.test(ua);
+
+  const lowSpec = isMobile || saveData || /(^|[^0-9])2g|3g/.test(networkType) || (cpuCores > 0 && cpuCores <= 4) || (memoryGb > 0 && memoryGb <= 4);
+  const slowNetwork = saveData || /(^|[^0-9])2g|3g/.test(networkType);
+  const recommendPreset = lowSpec ? 'cheapest' : 'reasoning';
+  const reason = lowSpec
+    ? 'Detected mobile or lower-power environment. Lower-cost preset is recommended.'
+    : 'Detected desktop/high-capability environment. Reasoning preset is recommended.';
+
+  return {
+    platform,
+    deviceType: isTablet ? 'Tablet' : isMobile ? 'Mobile' : 'Desktop',
+    cpuCores,
+    memoryGb,
+    networkType: networkType || 'unknown',
+    slowNetwork,
+    recommendPreset,
+    reason,
+  };
+}
+
+function scoreModelForPrompt(modelRecord, promptText, deviceProfile) {
+  const text = `${modelRecord.model.name} ${modelRecord.model.id}`.toLowerCase();
+  const prompt = (promptText || '').toLowerCase();
+
+  const isCoding = /code|debug|bug|function|api|sql|typescript|python|javascript|algorithm/.test(prompt);
+  const isMathReasoning = /reason|logic|math|proof|equation|derive|analyze/.test(prompt);
+  const wantsFast = /fast|quick|short|brief|instant|latency|speed/.test(prompt);
+  const wantsCheap = /cheap|low cost|budget|affordable|save|econom/.test(prompt);
+
+  const price = (modelRecord.model.inputCost || 0) + (modelRecord.model.outputCost || 0);
+  const context = modelRecord.model.contextWindow || 0;
+
+  let score = 0;
+
+  if (/gpt-4|claude|sonnet|opus|o1|grok|deepseek-r1/.test(text)) score += 4;
+  if (/mini|flash|haiku|instant|small|light/.test(text)) score += 2;
+  if (/code|coder|codestral|deepseek|qwen/.test(text) && isCoding) score += 8;
+  if (/o1|reason|r1|sonnet|opus|gpt-4/.test(text) && isMathReasoning) score += 8;
+  if (wantsFast && /flash|haiku|mini|instant|small/.test(text)) score += 6;
+  if (wantsCheap && price > 0) score += Math.max(0, 5 - price * 500);
+
+  if (context >= 128000) score += 1;
+  if (deviceProfile?.deviceType === 'Mobile' && /mini|flash|haiku|small|light|instant/.test(text)) score += 4;
+  if (deviceProfile?.slowNetwork && /mini|flash|haiku|small|light|instant/.test(text)) score += 4;
+  if (deviceProfile?.slowNetwork && price > 0) score += Math.max(0, 3 - price * 300);
+
+  // Slight penalty for very expensive models unless explicitly reasoning-heavy
+  if (price > 0.03 && !isMathReasoning) score -= 4;
+
+  return score;
+}
+
+function VirtualModelList({ models, providerId, selectedModels, addModel, maxSelectedReached }) {
+  const rowHeight = 44;
+  const viewportHeight = 260;
+  const overscan = 6;
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const totalHeight = models.length * rowHeight;
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const visibleCount = Math.ceil(viewportHeight / rowHeight) + overscan * 2;
+  const endIndex = Math.min(models.length, startIndex + visibleCount);
+  const visible = models.slice(startIndex, endIndex);
+
+  return (
+    <div
+      style={{ height: viewportHeight, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface)' }}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+    >
+      <div style={{ height: totalHeight, position: 'relative' }}>
+        {visible.map((model, i) => {
+          const index = startIndex + i;
+          const top = index * rowHeight;
+          const key = `${providerId}::${model.id}`;
+          const alreadyAdded = selectedModels.includes(key);
+          return (
+            <button
+              key={model.id}
+              className="btn btn-secondary btn-sm"
+              style={{
+                position: 'absolute',
+                top,
+                left: 6,
+                right: 6,
+                height: rowHeight - 6,
+                justifyContent: 'space-between',
+                fontSize: 12,
+                opacity: alreadyAdded ? 0.45 : 1,
+                textAlign: 'left',
+                padding: '0 10px',
+              }}
+              disabled={alreadyAdded || maxSelectedReached}
+              onClick={() => addModel(providerId, model.id, model)}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-muted)' }}>{alreadyAdded ? '✓' : '+'}</span>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }}>{model.name}</span>
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                {model.contextWindow ? `${Math.round(model.contextWindow / 1000)}K` : '—'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // Streaming text panel for one model
 function ModelPanel({ slot, onRemove }) {
@@ -181,11 +321,158 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
   const [slots, setSlots] = useState([]);
   const [running, setRunning] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [customOpenRouterModel, setCustomOpenRouterModel] = useState('');
+  const [openRouterCatalog, setOpenRouterCatalog] = useState([]);
+  const [openRouterCatalogLoading, setOpenRouterCatalogLoading] = useState(false);
+  const [openRouterCatalogError, setOpenRouterCatalogError] = useState('');
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerProviderFilter, setPickerProviderFilter] = useState('all');
+  const [pickerSort, setPickerSort] = useState('name-asc');
+  const [pickerGiantOnly, setPickerGiantOnly] = useState(false);
+  const [savedSelection, setSavedSelection] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LIVE_PRESET_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [deviceProfile, setDeviceProfile] = useState(null);
+  const [hideDeviceHint, setHideDeviceHint] = useState(() => {
+    try {
+      return localStorage.getItem(DEVICE_HINT_DISMISS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const pickerSearchRef = useRef(null);
   const abortRef = useRef(false);
 
-  const MAX_PANELS = 4;
+  const DEFAULT_MAX_PANELS = 4;
+  const MAX_PANELS = deviceProfile?.deviceType === 'Mobile' ? 2 : DEFAULT_MAX_PANELS;
+  const MAX_MODELS_PER_PROVIDER = 200;
+  const openRouterModels = openRouterCatalog.length
+    ? openRouterCatalog
+    : (PROVIDERS.openrouter?.models || []);
 
-  const addModel = (providerId, modelId) => {
+  const visibleProviders = useMemo(() => {
+    const list = Object.values(PROVIDERS);
+    if (pickerProviderFilter === 'all') return list;
+    return list.filter((p) => p.id === pickerProviderFilter);
+  }, [pickerProviderFilter]);
+
+  const filterAndSortModels = useCallback((models) => {
+    const query = pickerQuery.trim().toLowerCase();
+    const filtered = models.filter((m) => {
+      const matchesQuery = !query || m.name.toLowerCase().includes(query) || m.id.toLowerCase().includes(query);
+      const matchesSize = !pickerGiantOnly || (m.contextWindow || 0) >= 128000;
+      return matchesQuery && matchesSize;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (pickerSort === 'context-desc') return (b.contextWindow || 0) - (a.contextWindow || 0);
+      if (pickerSort === 'price-asc') {
+        const aPrice = (a.inputCost || 0) + (a.outputCost || 0);
+        const bPrice = (b.inputCost || 0) + (b.outputCost || 0);
+        return aPrice - bPrice;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return sorted;
+  }, [pickerQuery, pickerGiantOnly, pickerSort]);
+
+  const allModelRecords = useMemo(() => {
+    const records = [];
+    Object.values(PROVIDERS).forEach((provider) => {
+      const models = provider.id === 'openrouter' ? openRouterModels : provider.models;
+      models.forEach((model) => {
+        records.push({
+          providerId: provider.id,
+          providerName: provider.name,
+          model,
+        });
+      });
+    });
+    return records;
+  }, [openRouterModels]);
+
+  useEffect(() => {
+    setDeviceProfile(detectClientProfile());
+  }, []);
+
+  useEffect(() => {
+    if (!deviceProfile?.slowNetwork) return;
+    setPickerSort('price-asc');
+    setPickerProviderFilter('openrouter');
+    setPickerGiantOnly(false);
+  }, [deviceProfile]);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    if (!apiKeys.openrouter) return;
+    if (openRouterCatalogLoading || openRouterCatalog.length > 0) return;
+
+    let active = true;
+    setOpenRouterCatalogLoading(true);
+    setOpenRouterCatalogError('');
+
+    fetchOpenRouterModels(apiKeys.openrouter)
+      .then((models) => {
+        if (!active) return;
+        setOpenRouterCatalog(models);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setOpenRouterCatalogError(err?.message || 'Failed to load OpenRouter catalog');
+      })
+      .finally(() => {
+        if (!active) return;
+        setOpenRouterCatalogLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [showPicker, apiKeys.openrouter, openRouterCatalogLoading, openRouterCatalog.length]);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    requestAnimationFrame(() => {
+      pickerSearchRef.current?.focus();
+    });
+  }, [showPicker]);
+
+  useEffect(() => {
+    const onKeydown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowPicker(true);
+      }
+      if (e.key === 'Escape' && showPicker) {
+        e.preventDefault();
+        setShowPicker(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  }, [showPicker]);
+
+  useEffect(() => {
+    if (!deviceProfile) return;
+    if (!allModelRecords.length) return;
+    if (slots.length > 0) return;
+
+    const alreadyApplied = localStorage.getItem(AUTO_PRESET_APPLIED_KEY) === '1';
+    if (alreadyApplied) return;
+
+    applyPreset(deviceProfile.recommendPreset, { silent: true });
+    localStorage.setItem(AUTO_PRESET_APPLIED_KEY, '1');
+    showToast(`Auto-applied ${deviceProfile.recommendPreset} preset for this device`, 'info');
+  }, [deviceProfile, allModelRecords.length, slots.length]);
+
+  const addModel = (providerId, modelId, modelMeta = null) => {
     const key = `${providerId}::${modelId}`;
     if (selectedModels.includes(key)) return;
     if (selectedModels.length >= MAX_PANELS) {
@@ -193,7 +480,8 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
       return;
     }
     const provider = PROVIDERS[providerId];
-    const model = provider.models.find(m => m.id === modelId);
+    const providerModels = providerId === 'openrouter' ? openRouterModels : provider.models;
+    const model = modelMeta || providerModels.find(m => m.id === modelId);
     setSelectedModels(prev => [...prev, key]);
     setSlots(prev => [...prev, {
       key,
@@ -201,17 +489,162 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
       modelId,
       modelName: model?.name || modelId,
       providerName: provider?.name || providerId,
+      inputCost: model?.inputCost || 0,
+      outputCost: model?.outputCost || 0,
+      contextWindow: model?.contextWindow || 0,
       status: 'idle',
       text: '',
       metrics: null,
       error: null,
     }]);
-    setShowPicker(false);
+  };
+
+  const replaceSelection = (records) => {
+    const next = records.slice(0, MAX_PANELS).map((r) => {
+      const key = `${r.providerId}::${r.model.id}`;
+      return {
+        key,
+        providerId: r.providerId,
+        modelId: r.model.id,
+        modelName: r.model.name || r.model.id,
+        providerName: r.providerName || PROVIDERS[r.providerId]?.name || r.providerId,
+        inputCost: r.model.inputCost || 0,
+        outputCost: r.model.outputCost || 0,
+        contextWindow: r.model.contextWindow || 0,
+        status: 'idle',
+        text: '',
+        metrics: null,
+        error: null,
+      };
+    });
+
+    setSelectedModels(next.map((s) => s.key));
+    setSlots(next);
+    showToast(`Preset applied with ${next.length} model${next.length !== 1 ? 's' : ''}`, 'success');
+  };
+
+  const applyPreset = (presetId, options = {}) => {
+    const { silent = false } = options;
+    const tokensByName = {
+      reasoning: /o1|reasoning|sonnet|opus|gpt-4|claude|grok|deepseek-r1/i,
+      coding: /code|codestral|gpt-4|claude|deepseek|qwen|llama|coder/i,
+    };
+
+    let candidates = allModelRecords;
+    if (presetId === 'largest') {
+      candidates = [...allModelRecords].sort((a, b) => (b.model.contextWindow || 0) - (a.model.contextWindow || 0));
+    } else if (presetId === 'cheapest') {
+      candidates = [...allModelRecords].sort((a, b) => {
+        const aPrice = (a.model.inputCost || 0) + (a.model.outputCost || 0);
+        const bPrice = (b.model.inputCost || 0) + (b.model.outputCost || 0);
+        return aPrice - bPrice;
+      });
+    } else {
+      const re = tokensByName[presetId];
+      candidates = allModelRecords.filter((r) => re.test(r.model.name) || re.test(r.model.id));
+      if (!candidates.length) candidates = allModelRecords;
+    }
+
+    const capped = candidates.slice(0, MAX_PANELS);
+    replaceSelection(capped);
+    if (!silent) {
+      showToast(`Applied ${presetId} preset`, 'success');
+    }
+  };
+
+  const autoDetectModels = () => {
+    if (!allModelRecords.length) {
+      showToast('Model catalog is empty right now', 'error');
+      return;
+    }
+
+    const liveCandidates = allModelRecords.filter((r) => !!apiKeys[r.providerId]);
+    const pool = liveCandidates.length ? liveCandidates : allModelRecords;
+
+    const scored = [...pool]
+      .map((r) => ({ record: r, score: scoreModelForPrompt(r, prompt, deviceProfile) }))
+      .sort((a, b) => b.score - a.score);
+
+    const selected = [];
+    const usedProviders = new Set();
+
+    // First pass: diversify providers for balanced comparison.
+    for (const item of scored) {
+      if (selected.length >= MAX_PANELS) break;
+      if (usedProviders.has(item.record.providerId)) continue;
+      selected.push(item.record);
+      usedProviders.add(item.record.providerId);
+    }
+
+    // Second pass: fill remaining slots by highest score.
+    for (const item of scored) {
+      if (selected.length >= MAX_PANELS) break;
+      if (selected.some((s) => s.providerId === item.record.providerId && s.model.id === item.record.model.id)) continue;
+      selected.push(item.record);
+    }
+
+    if (!selected.length) {
+      showToast('Could not auto-detect suitable models', 'error');
+      return;
+    }
+
+    replaceSelection(selected);
+    showToast(`Auto-detected ${selected.length} model${selected.length !== 1 ? 's' : ''}`, 'success');
+  };
+
+  const saveCurrentSelection = () => {
+    const payload = slots.map((s) => ({
+      providerId: s.providerId,
+      providerName: s.providerName,
+      model: {
+        id: s.modelId,
+        name: s.modelName,
+        contextWindow: s.contextWindow || 0,
+        inputCost: s.inputCost || 0,
+        outputCost: s.outputCost || 0,
+      },
+    }));
+    setSavedSelection(payload);
+    localStorage.setItem(LIVE_PRESET_STORAGE_KEY, JSON.stringify(payload));
+    showToast('Current selection saved', 'success');
+  };
+
+  const loadSavedSelection = () => {
+    if (!savedSelection.length) {
+      showToast('No saved selection yet', 'error');
+      return;
+    }
+    replaceSelection(savedSelection);
+  };
+
+  const dismissDeviceHint = () => {
+    setHideDeviceHint(true);
+    localStorage.setItem(DEVICE_HINT_DISMISS_KEY, '1');
   };
 
   const removeModel = (key) => {
     setSelectedModels(prev => prev.filter(k => k !== key));
     setSlots(prev => prev.filter(s => s.key !== key));
+  };
+
+  const addCustomOpenRouterModel = () => {
+    const modelId = customOpenRouterModel.trim();
+    if (!modelId) {
+      showToast('Enter an OpenRouter model ID first', 'error');
+      return;
+    }
+    if (!modelId.includes('/')) {
+      showToast('Use provider/model format, example: openai/gpt-4o', 'error');
+      return;
+    }
+    addModel('openrouter', modelId, {
+      id: modelId,
+      name: modelId,
+      contextWindow: 0,
+      inputCost: 0,
+      outputCost: 0,
+    });
+    setCustomOpenRouterModel('');
   };
 
   const updateSlot = useCallback((key, patch) => {
@@ -220,7 +653,11 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
 
   const handleSend = async () => {
     if (!prompt.trim()) { showToast('Enter a prompt first', 'error'); return; }
-    if (slots.length === 0) { showToast('Add at least one model panel', 'error'); return; }
+    if (slots.length === 0) {
+      autoDetectModels();
+      showToast('Models auto-selected. Press send again to run.', 'info');
+      return;
+    }
 
     abortRef.current = false;
     setRunning(true);
@@ -232,7 +669,7 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
 
     // Run all models concurrently
     const runs = slots.map(async (slot) => {
-      const { key, providerId, modelId, modelName } = slot;
+      const { key, providerId, modelId, modelName, inputCost, outputCost, contextWindow } = slot;
       const apiKey = apiKeys[providerId];
       const provider = PROVIDERS[providerId];
       const model = provider?.models.find(m => m.id === modelId);
@@ -284,9 +721,11 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
         const ttft = firstTokenTime ? Math.round(firstTokenTime - startTime) : totalTime;
         const tokensPerSec = tokenCount / (totalTime / 1000);
         const inputTokens = Math.ceil(prompt.split(/\s+/).length * 1.3);
+        const finalInputCost = inputCost || model?.inputCost || 0;
+        const finalOutputCost = outputCost || model?.outputCost || 0;
         const estimatedCost = model
-          ? ((inputTokens / 1000) * model.inputCost) + ((tokenCount / 1000) * model.outputCost)
-          : 0;
+          ? ((inputTokens / 1000) * finalInputCost) + ((tokenCount / 1000) * finalOutputCost)
+          : ((inputTokens / 1000) * finalInputCost) + ((tokenCount / 1000) * finalOutputCost);
 
         const finalMetrics = { ttft, tokensPerSec, outputTokens: tokenCount, totalTime, estimatedCost };
 
@@ -303,7 +742,7 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
             latency: ttft,
             throughput: Math.round(tokensPerSec),
             quality: 85 + Math.floor(Math.random() * 15), // placeholder
-            context: Math.round((model?.contextWindow || 8000) / 1000),
+            context: Math.round(((contextWindow || model?.contextWindow || 8000) / 1000)),
             cost: parseFloat((estimatedCost * 1000).toFixed(4)),
           },
           tokens: { input: inputTokens, output: tokenCount },
@@ -336,6 +775,10 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
     setSlots(prev => prev.map(s => ({ ...s, text: '', status: 'idle', metrics: null, error: null })));
   };
 
+  const promptSuggestions = deviceProfile?.deviceType === 'Mobile'
+    ? PROMPT_SUGGESTIONS_MOBILE
+    : PROMPT_SUGGESTIONS_DEFAULT;
+
   // Grid columns based on panel count
   const cols = Math.min(slots.length, 2);
   const gridCols = cols === 0 ? '1fr' : cols === 1 ? '1fr' : 'repeat(2, 1fr)';
@@ -353,6 +796,35 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
         <h1><IconLive size={28} style={{ verticalAlign: -4, marginRight: 8 }} /> Live Test</h1>
         <p>Type a prompt and compare real AI responses streaming side-by-side with live metrics</p>
       </div>
+
+      {deviceProfile && !hideDeviceHint && (
+        <div className="card" style={{ marginBottom: 14, padding: 14 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+                Device detected: {deviceProfile.deviceType} on {deviceProfile.platform}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                {deviceProfile.reason} ({deviceProfile.cpuCores || 'n/a'} cores, {deviceProfile.memoryGb || 'n/a'}GB RAM, {deviceProfile.networkType})
+              </div>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => applyPreset(deviceProfile.recommendPreset)}>
+              Apply Recommended Preset
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={dismissDeviceHint}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {running && deviceProfile?.slowNetwork && (
+        <div className="card" style={{ marginBottom: 14, padding: 12, borderColor: 'rgba(245,158,11,0.45)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Slow network detected ({deviceProfile.networkType}). For smoother streaming use 1-2 models, keep prompt concise, or apply the Cheapest preset.
+          </div>
+        </div>
+      )}
 
       {/* Prompt input area */}
       <div className="card" style={{ marginBottom: 20 }}>
@@ -407,6 +879,7 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
               className="btn btn-secondary"
               onClick={() => setShowPicker(p => !p)}
               disabled={running || selectedModels.length >= MAX_PANELS}
+              title="Open model picker (Ctrl/Cmd+K)"
             >
               ＋ Add Model
             </button>
@@ -415,13 +888,19 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
 
         {/* Quick prompt suggestions */}
         <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[
-            'Explain quantum computing in simple terms',
-            'Write a recursive Fibonacci in Python with memoization',
-            'What are the ethical risks of autonomous AI agents?',
-            'Create a haiku about machine learning',
-            'Pros and cons of GraphQL vs REST APIs',
-          ].map(suggestion => (
+          <button className="btn btn-primary btn-sm" onClick={autoDetectModels} disabled={running}>
+            Auto Detect Models
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => applyPreset('reasoning')} disabled={running}>Preset: Reasoning</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => applyPreset('coding')} disabled={running}>Preset: Coding</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => applyPreset('cheapest')} disabled={running}>Preset: Cheapest</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => applyPreset('largest')} disabled={running}>Preset: Largest Context</button>
+          <button className="btn btn-secondary btn-sm" onClick={saveCurrentSelection} disabled={running || slots.length === 0}>Save Selection</button>
+          <button className="btn btn-secondary btn-sm" onClick={loadSavedSelection} disabled={running}>Load Saved</button>
+        </div>
+
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {promptSuggestions.map(suggestion => (
             <button
               key={suggestion}
               className="btn btn-secondary btn-sm"
@@ -442,44 +921,153 @@ export default function LiveTest({ apiKeys, onResult, showToast }) {
             <div className="section-title">Select a Model to Add</div>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowPicker(false)}>✕ Close</button>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) auto auto auto', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+            <input
+              ref={pickerSearchRef}
+              type="text"
+              className="form-input"
+              placeholder="Search by model name or id"
+              value={pickerQuery}
+              onChange={e => setPickerQuery(e.target.value)}
+              disabled={running}
+              style={{ minWidth: 180 }}
+            />
+            <select
+              className="form-select"
+              value={pickerProviderFilter}
+              onChange={e => setPickerProviderFilter(e.target.value)}
+              disabled={running}
+            >
+              <option value="all">All providers</option>
+              {Object.values(PROVIDERS).map(provider => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+            <select
+              className="form-select"
+              value={pickerSort}
+              onChange={e => setPickerSort(e.target.value)}
+              disabled={running}
+            >
+              <option value="name-asc">Sort: Name</option>
+              <option value="context-desc">Sort: Context (High to Low)</option>
+              <option value="price-asc">Sort: Price (Low to High)</option>
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={pickerGiantOnly}
+                onChange={e => setPickerGiantOnly(e.target.checked)}
+                disabled={running}
+              />
+              Giant only (&gt;=128K)
+            </label>
+          </div>
+
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>Test Any Global Model (OpenRouter)</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Add any OpenRouter model ID in provider/model format, for example: anthropic/claude-3.5-sonnet
+            </div>
+            {apiKeys.openrouter && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                {openRouterCatalogLoading
+                  ? 'Loading latest OpenRouter model catalog...'
+                  : openRouterCatalogError
+                    ? `Catalog load failed: ${openRouterCatalogError}`
+                    : openRouterCatalog.length
+                      ? `Loaded ${openRouterCatalog.length} OpenRouter models`
+                      : 'Using built-in OpenRouter presets'}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. openai/gpt-4o or deepseek/deepseek-chat"
+                value={customOpenRouterModel}
+                onChange={e => setCustomOpenRouterModel(e.target.value)}
+                disabled={running || selectedModels.length >= MAX_PANELS}
+                style={{ flex: 1, minWidth: 220, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={addCustomOpenRouterModel}
+                disabled={running || selectedModels.length >= MAX_PANELS}
+              >
+                Add Custom Model
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {Object.values(PROVIDERS).map(provider => (
+            {openRouterCatalogLoading && pickerProviderFilter === 'all' && (
+              <div className="picker-skeleton-list" aria-hidden="true">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="picker-skeleton-item" />
+                ))}
+              </div>
+            )}
+            {visibleProviders.map(provider => {
+              const rawModels = provider.id === 'openrouter' ? openRouterModels : provider.models;
+              const filteredModels = filterAndSortModels(rawModels);
+              const models = filteredModels.slice(0, MAX_MODELS_PER_PROVIDER);
+              return (
               <div key={provider.id}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <ProviderLogo providerId={provider.id} size={18} />
                   </div>
                   <span style={{ fontWeight: 700, color: provider.color }}>{provider.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 999 }}>
+                    {filteredModels.length} shown
+                  </span>
                   {!apiKeys[provider.id] && (
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b' }}>
                       No API key
                     </span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {provider.models.map(model => {
-                    const key = `${provider.id}::${model.id}`;
-                    const alreadyAdded = selectedModels.includes(key);
-                    return (
-                      <button
-                        key={model.id}
-                        className={`btn btn-secondary btn-sm ${alreadyAdded ? '' : ''}`}
-                        style={{
-                          fontSize: 12,
-                          opacity: alreadyAdded ? 0.4 : 1,
-                          borderColor: alreadyAdded ? 'transparent' : undefined,
-                          background: alreadyAdded ? 'var(--bg-surface)' : undefined,
-                        }}
-                        disabled={alreadyAdded || selectedModels.length >= MAX_PANELS}
-                        onClick={() => addModel(provider.id, model.id)}
-                      >
-                        {alreadyAdded ? '✓ ' : '＋ '}{model.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                {models.length > 80 ? (
+                  <VirtualModelList
+                    models={models}
+                    providerId={provider.id}
+                    selectedModels={selectedModels}
+                    addModel={addModel}
+                    maxSelectedReached={selectedModels.length >= MAX_PANELS}
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {models.map(model => {
+                      const key = `${provider.id}::${model.id}`;
+                      const alreadyAdded = selectedModels.includes(key);
+                      return (
+                        <button
+                          key={model.id}
+                          className={`btn btn-secondary btn-sm ${alreadyAdded ? '' : ''}`}
+                          style={{
+                            fontSize: 12,
+                            opacity: alreadyAdded ? 0.4 : 1,
+                            borderColor: alreadyAdded ? 'transparent' : undefined,
+                            background: alreadyAdded ? 'var(--bg-surface)' : undefined,
+                          }}
+                          disabled={alreadyAdded || selectedModels.length >= MAX_PANELS}
+                          onClick={() => addModel(provider.id, model.id, model)}
+                        >
+                          {alreadyAdded ? '✓ ' : '＋ '}{model.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {filteredModels.length > MAX_MODELS_PER_PROVIDER && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    Showing first {MAX_MODELS_PER_PROVIDER} models. Refine search/filter to narrow further.
+                  </div>
+                )}
               </div>
-            ))}
+            )})}
           </div>
         </div>
       )}

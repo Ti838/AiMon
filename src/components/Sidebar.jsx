@@ -57,16 +57,16 @@ export default function Sidebar({ activePage, onNavigate }) {
           padding: '14px',
           borderRadius: 'var(--radius-md)',
           background: 'var(--gradient-brand-subtle)',
-          border: '1px solid rgba(124,58,237,0.2)',
+          border: '1px solid var(--border)',
           fontSize: '12px',
           color: 'var(--text-secondary)',
           lineHeight: 1.6,
         }}>
           <div style={{ fontWeight: 700, color: 'var(--text-accent)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>
-            Pro Tip
+            Best Practice
           </div>
-          Add your API keys in Settings to run real benchmarks against live models.
+          Add OpenRouter API key in API Keys to benchmark a large live model catalog from one place.
         </div>
       </div>
     </aside>

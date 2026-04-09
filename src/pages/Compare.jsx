@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PROVIDERS, METRICS } from '../data/providers';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, Legend
 } from 'recharts';
 import { IconScale, IconPointer, IconCrown, IconBenchmark, IconSpeed, IconTarget, IconMoney, IconBook } from '../components/NavIcons';
+import { downloadCsv, exportElementAsPng } from '../lib/export';
+
+const CHART_THEME = {
+  axis: 'var(--chart-axis)',
+  grid: 'var(--chart-grid)',
+  legend: 'var(--chart-legend)',
+};
 
 const METRIC_ICONS = {
   latency: <IconBenchmark size={16} />,
@@ -35,8 +42,19 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-export default function Compare({ results }) {
+export default function Compare({ results, showToast }) {
   const [selected, setSelected] = useState([]);
+  const [reduceChartMotion, setReduceChartMotion] = useState(false);
+  const compareChartsRef = useRef(null);
+
+  useEffect(() => {
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const lowPowerDevice = (nav?.hardwareConcurrency || 8) <= 4 || (nav?.deviceMemory || 8) <= 4;
+    const slowNetwork = !!conn?.saveData || /(^|[^0-9])2g|3g/.test(conn?.effectiveType || '');
+    setReduceChartMotion(Boolean(prefersReducedMotion || lowPowerDevice || slowNetwork));
+  }, []);
 
   if (!results.length) {
     return (
@@ -113,15 +131,45 @@ export default function Compare({ results }) {
     });
   };
 
+  const handleExportCsv = () => {
+    if (!compared.length) {
+      showToast?.('Select models first', 'error');
+      return;
+    }
+    downloadCsv('compare-models.csv', compared.map((m) => ({
+      provider: m.providerName,
+      model: m.modelName,
+      latency_ms: Math.round(m.metrics.latency),
+      throughput_tok_s: Math.round(m.metrics.throughput),
+      quality: Math.round(m.metrics.quality),
+      cost_per_1k: Number(m.metrics.cost).toFixed(4),
+      context_k: Math.round(m.metrics.context),
+    })));
+    showToast?.('Compare CSV exported', 'success');
+  };
+
+  const handleExportPng = async () => {
+    try {
+      await exportElementAsPng(compareChartsRef.current, 'compare-charts.png');
+      showToast?.('Compare PNG exported', 'success');
+    } catch {
+      showToast?.('Failed to export compare PNG', 'error');
+    }
+  };
+
   return (
-    <div className="fade-in">
+    <div className="fade-in page-stack">
       <div className="page-header">
         <h1><IconScale size={28} style={{ verticalAlign: -4, marginRight: 8 }} /> Compare Models</h1>
         <p>Select up to 4 models for head-to-head comparison</p>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportCsv}>Export CSV</button>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportPng}>Export Charts PNG</button>
+        </div>
       </div>
 
       {/* Model picker */}
-      <div className="card" style={{ marginBottom: 24 }}>
+      <div className="card page-section">
         <div className="section-header">
           <div>
             <div className="section-title">Select Models to Compare</div>
@@ -170,7 +218,7 @@ export default function Compare({ results }) {
       {compared.length >= 2 && (
         <>
           {/* Metric winner table */}
-          <div className="card" style={{ marginBottom: 24 }}>
+          <div className="card page-section">
             <div className="section-title" style={{ marginBottom: 16 }}>
               <IconScale size={20} style={{ verticalAlign: -4, marginRight: 8, color: 'var(--accent-color)' }} /> 
               Head-to-Head Metrics
@@ -226,15 +274,15 @@ export default function Compare({ results }) {
           </div>
 
           {/* Charts */}
-          <div className="grid-2">
+          <div className="grid-2" ref={compareChartsRef}>
             <div className="card">
               <div className="section-title" style={{ marginBottom: 4 }}>Radar Comparison</div>
               <div className="section-subtitle" style={{ marginBottom: 12 }}>Quality · Throughput · Context (normalized)</div>
               <div className="chart-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={radarData}>
-                    <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                    <PolarAngleAxis dataKey="dim" tick={{ fill: '#9090b0', fontSize: 11 }} />
+                    <PolarGrid stroke={CHART_THEME.grid} />
+                    <PolarAngleAxis dataKey="dim" tick={{ fill: CHART_THEME.axis, fontSize: 11 }} />
                     {compared.map((m, i) => (
                       <Radar
                         key={m.modelId}
@@ -244,9 +292,10 @@ export default function Compare({ results }) {
                         fill={COLORS[i]}
                         fillOpacity={0.15}
                         strokeWidth={2}
+                        isAnimationActive={!reduceChartMotion}
                       />
                     ))}
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 12, color: CHART_THEME.legend }} />
                     <Tooltip content={<CustomTooltip />} />
                   </RadarChart>
                 </ResponsiveContainer>
@@ -267,13 +316,13 @@ export default function Compare({ results }) {
                     }))}
                     margin={{ top: 5, right: 10, left: -10, bottom: 20 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="name" tick={{ fill: '#9090b0', fontSize: 11 }} angle={-15} textAnchor="end" />
-                    <YAxis tick={{ fill: '#9090b0', fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
+                    <XAxis dataKey="name" tick={{ fill: CHART_THEME.axis, fontSize: 11 }} angle={-15} textAnchor="end" />
+                    <YAxis tick={{ fill: CHART_THEME.axis, fontSize: 11 }} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Latency" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Throughput" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                    <Legend wrapperStyle={{ fontSize: 12, color: CHART_THEME.legend }} />
+                    <Bar dataKey="Latency" fill="#7c3aed" radius={[4, 4, 0, 0]} isAnimationActive={!reduceChartMotion} />
+                    <Bar dataKey="Throughput" fill="#06b6d4" radius={[4, 4, 0, 0]} isAnimationActive={!reduceChartMotion} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -4,6 +4,7 @@ import { ProviderLogo } from '../components/ProviderLogos';
 import { IconSettings } from '../components/NavIcons';
 
 const PROVIDER_DOCS = {
+  openrouter: 'https://openrouter.ai/keys',
   openai: 'https://platform.openai.com/api-keys',
   anthropic: 'https://console.anthropic.com/settings/keys',
   google: 'https://aistudio.google.com/app/apikey',

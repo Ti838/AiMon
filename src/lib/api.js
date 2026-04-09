@@ -252,6 +252,74 @@ export async function callMeta({ model, prompt, apiKey, onToken, onError }) {
   }, onToken);
 }
 
+// ── OpenRouter (single gateway to many global models) ─────────────────────
+export async function callOpenRouter({ model, prompt, apiKey, onToken, onError }) {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'AiMon',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+      max_tokens: 1024,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OpenRouter error ${res.status}`);
+  }
+
+  return readSSEStream(res.body, (line) => {
+    if (!line.startsWith('data: ') || line.includes('[DONE]')) return null;
+    try {
+      const json = JSON.parse(line.slice(6));
+      return json.choices?.[0]?.delta?.content || null;
+    } catch { return null; }
+  }, onToken);
+}
+
+// ── OpenRouter Models Catalog ─────────────────────────────────────────────
+export async function fetchOpenRouterModels(apiKey) {
+  const res = await fetch('https://openrouter.ai/api/v1/models', {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'AiMon',
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OpenRouter models error ${res.status}`);
+  }
+
+  const data = await res.json();
+  const models = Array.isArray(data?.data) ? data.data : [];
+
+  return models
+    .map((m) => {
+      const inputPerToken = parseFloat(m?.pricing?.prompt || '0');
+      const outputPerToken = parseFloat(m?.pricing?.completion || '0');
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        contextWindow: Number(m.context_length || 0),
+        inputCost: Number.isFinite(inputPerToken) ? inputPerToken * 1000 : 0,
+        outputCost: Number.isFinite(outputPerToken) ? outputPerToken * 1000 : 0,
+      };
+    })
+    .filter((m) => !!m.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // ── SSE Stream Reader ─────────────────────────────────────────────────────
 async function readSSEStream(body, parseLine, onToken) {
   const reader = body.getReader();
@@ -278,6 +346,7 @@ async function readSSEStream(body, parseLine, onToken) {
 
 // ── Dispatcher ────────────────────────────────────────────────────────────
 const CALLERS = {
+  openrouter: callOpenRouter,
   openai: callOpenAI,
   anthropic: callAnthropic,
   google: callGoogle,

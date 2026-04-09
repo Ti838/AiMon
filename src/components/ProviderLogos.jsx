@@ -15,6 +15,18 @@ export function OpenAILogo({ size = 24, color = '#10a37f' }) {
   );
 }
 
+export function OpenRouterLogo({ size = 24, color = '#ff6b35' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="OpenRouter">
+      <circle cx="18" cy="18" r="15" stroke={color} strokeWidth="2.5" fill="none" />
+      <path d="M11 20.5C13.8 24.8 20.2 26.1 24.6 23.4C29 20.7 30.5 15.1 28 10.6" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M25 15.5C22.2 11.2 15.8 9.9 11.4 12.6C7 15.3 5.5 20.9 8 25.4" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="11" cy="10" r="2.3" fill={color} />
+      <circle cx="25" cy="26" r="2.3" fill={color} />
+    </svg>
+  );
+}
+
 export function AnthropicLogo({ size = 24, color = '#d4500c' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 80 65" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Anthropic">
@@ -89,6 +101,7 @@ export function GroqLogo({ size = 24, color = '#f55036' }) {
 
 // Map provider ID → logo component
 export const PROVIDER_LOGOS = {
+  openrouter: OpenRouterLogo,
   openai: OpenAILogo,
   anthropic: AnthropicLogo,
   google: GoogleGeminiLogo,

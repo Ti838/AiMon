@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PROVIDERS, METRICS } from '../data/providers';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Cell
 } from 'recharts';
 import { IconTest, IconBenchmark, IconTarget, IconMoney, IconCrown, IconGlobe, IconSpeed, IconBook } from '../components/NavIcons';
+import { downloadCsv, exportElementAsPng } from '../lib/export';
+
+const CHART_THEME = {
+  axis: 'var(--chart-axis)',
+  grid: 'var(--chart-grid)',
+  legend: 'var(--chart-legend)',
+};
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
@@ -25,8 +32,19 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-export default function Dashboard({ results }) {
+export default function Dashboard({ results, showToast }) {
   const [chartMetric, setChartMetric] = useState('latency');
+  const [reduceChartMotion, setReduceChartMotion] = useState(false);
+  const chartSectionRef = useRef(null);
+
+  useEffect(() => {
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    const conn = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const lowPowerDevice = (nav?.hardwareConcurrency || 8) <= 4 || (nav?.deviceMemory || 8) <= 4;
+    const slowNetwork = !!conn?.saveData || /(^|[^0-9])2g|3g/.test(conn?.effectiveType || '');
+    setReduceChartMotion(Boolean(prefersReducedMotion || lowPowerDevice || slowNetwork));
+  }, []);
 
   const latestResults = results.slice(-20);
   const hasData = latestResults.length > 0;
@@ -88,11 +106,42 @@ export default function Dashboard({ results }) {
     { icon: <IconGlobe size={16} color="var(--accent-color)" />, label: 'Providers Tested', value: hasData ? new Set(latestResults.map(r => r.providerId)).size : 0, delta: null },
   ];
 
+  const handleExportCsv = () => {
+    if (!latestResults.length) {
+      showToast?.('No benchmark data to export', 'error');
+      return;
+    }
+    downloadCsv('dashboard-runs.csv', latestResults.map((r) => ({
+      timestamp: r.timestamp,
+      provider: r.providerName,
+      model: r.modelName,
+      latency_ms: r.metrics.latency,
+      throughput_tok_s: r.metrics.throughput,
+      quality: r.metrics.quality,
+      cost_per_1k: r.metrics.cost,
+      context_k: r.metrics.context,
+    })));
+    showToast?.('CSV exported', 'success');
+  };
+
+  const handleExportPng = async () => {
+    try {
+      await exportElementAsPng(chartSectionRef.current, 'dashboard-charts.png');
+      showToast?.('PNG exported', 'success');
+    } catch {
+      showToast?.('Failed to export PNG', 'error');
+    }
+  };
+
   return (
-    <div className="fade-in">
+    <div className="fade-in page-stack">
       <div className="page-header">
         <h1>Performance Dashboard</h1>
         <p>Overview of all benchmark runs across providers and models</p>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportCsv}>Export CSV</button>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportPng}>Export Charts PNG</button>
+        </div>
       </div>
 
       <div className="metrics-grid">
@@ -114,7 +163,7 @@ export default function Dashboard({ results }) {
           </div>
         </div>
       ) : (
-        <div className="grid-2" style={{ marginBottom: 24 }}>
+        <div className="grid-2 page-section" ref={chartSectionRef}>
           <div className="card">
             <div className="section-header">
               <div>
@@ -135,11 +184,11 @@ export default function Dashboard({ results }) {
             <div className="chart-container">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" tick={{ fill: '#9090b0', fontSize: 11 }} angle={-25} textAnchor="end" />
-                  <YAxis tick={{ fill: '#9090b0', fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_THEME.grid} />
+                  <XAxis dataKey="name" tick={{ fill: CHART_THEME.axis, fontSize: 11 }} angle={-25} textAnchor="end" />
+                  <YAxis tick={{ fill: CHART_THEME.axis, fontSize: 11 }} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="value" name={METRICS[chartMetric]?.label} radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="value" name={METRICS[chartMetric]?.label} radius={[4, 4, 0, 0]} isAnimationActive={!reduceChartMotion}>
                     {barData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
@@ -159,8 +208,8 @@ export default function Dashboard({ results }) {
             <div className="chart-container">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData}>
-                  <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                  <PolarAngleAxis dataKey="metric" tick={{ fill: '#9090b0', fontSize: 11 }} />
+                  <PolarGrid stroke={CHART_THEME.grid} />
+                  <PolarAngleAxis dataKey="metric" tick={{ fill: CHART_THEME.axis, fontSize: 11 }} />
                   {uniqueModels.map((r, i) => (
                     <Radar
                       key={r.modelId}
@@ -170,9 +219,10 @@ export default function Dashboard({ results }) {
                       fill={RADAR_COLORS[i]}
                       fillOpacity={0.15}
                       strokeWidth={2}
+                      isAnimationActive={!reduceChartMotion}
                     />
                   ))}
-                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16, color: CHART_THEME.legend }} />
                   <Tooltip content={<CustomTooltip />} />
                 </RadarChart>
               </ResponsiveContainer>
