@@ -47,14 +47,14 @@ This gives broad practical coverage, but not a permanent â€œall models foreverâ€
 
 ## Screenshots
 
-Place screenshots in [docs/screenshots/README.md](docs/screenshots/README.md) recommended paths.
+Place screenshots in [public/screenshots/README.md](public/screenshots/README.md) recommended paths.
 
 Example display blocks you can use after adding images:
 
 ```md
-![Dashboard](docs/screenshots/dashboard.png)
-![Live Test](docs/screenshots/live-test.png)
-![Compare](docs/screenshots/compare.png)
+![Dashboard](public/screenshots/dashboard.png)
+![Live Test](public/screenshots/live-test.png)
+![Compare](public/screenshots/compare.png)
 ```
 
 ## Quick Start
@@ -126,6 +126,8 @@ Workflow file: [.github/workflows/ci.yml](.github/workflows/ci.yml)
 - Manual version automation workflow: [.github/workflows/version-bump.yml](.github/workflows/version-bump.yml)
 - Tag-based release workflow: [.github/workflows/release.yml](.github/workflows/release.yml)
 - GitHub Pages deployment workflow: [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml)
+- Release checklist issue template: [.github/ISSUE_TEMPLATE/release-checklist.md](.github/ISSUE_TEMPLATE/release-checklist.md)
+- Pull request template: [.github/pull_request_template.md](.github/pull_request_template.md)
 
 ## Security Notes
 
