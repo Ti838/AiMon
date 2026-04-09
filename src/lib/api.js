@@ -208,7 +208,9 @@ export async function callCohere({ model, prompt, apiKey, onToken, onError }) {
           onToken(json.text);
           outputTokens += json.text.split(/\s+/).length;
         }
-      } catch {}
+      } catch {
+        // Ignore malformed partial chunks in streaming mode.
+      }
     }
   }
   return { inputTokens: 0, outputTokens };
